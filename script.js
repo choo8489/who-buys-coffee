@@ -128,11 +128,11 @@ function startGame() {
 function initPhysics() {
     const { Engine, Render, Runner, Bodies, Body, Composite, Events, Vector } = Matter;
 
-    // 엔진 크기 결정 (뷰포트 기준)
+    // 엔진 크기 결정 (뷰포트 기준, 높이는 5배)
     const maxW = Math.min(window.innerWidth - 32, 860);
-    const maxH = Math.min(window.innerHeight - 160, 680);
+    const viewH = Math.min(window.innerHeight - 160, 680);
     const W = maxW;
-    const H = maxH;
+    const H = viewH * 5;  // 5배 깊이
 
     const canvas = document.getElementById('game-canvas');
     canvas.width = W;
@@ -161,29 +161,37 @@ function initPhysics() {
     const wallOpts = { isStatic: true, render: { fillStyle: 'rgba(168,85,247,0.15)', strokeStyle: 'rgba(168,85,247,0.4)', lineWidth: 2 } };
     const wallThick = 30;
     const walls = [
-        Bodies.rectangle(W / 2, H + wallThick / 2, W + 40, wallThick, { isStatic: true, label: 'floor', render: { fillStyle: '#a855f710', strokeStyle: '#a855f730', lineWidth: 1 } }),
-        Bodies.rectangle(-wallThick / 2, H / 2, wallThick, H * 2, wallOpts),   // 좌벽
-        Bodies.rectangle(W + wallThick / 2, H / 2, wallThick, H * 2, wallOpts), // 우벽
+        Bodies.rectangle(W / 2, H + wallThick / 2, W + 40, wallThick, { isStatic: true, label: 'floor', render: { fillStyle: '#a855f718', strokeStyle: '#a855f750', lineWidth: 2 } }),
+        Bodies.rectangle(-wallThick / 2, H / 2, wallThick, H + 200, wallOpts),   // 좌벽
+        Bodies.rectangle(W + wallThick / 2, H / 2, wallThick, H + 200, wallOpts), // 우벽
     ];
     Composite.add(matterEngine.world, walls);
 
-    // ── Plinko 핀(Peg) 배치 ──
-    addPegs(W, H);
-
     // ── 플레이어 볼 생성 ──
-    const ballR = Math.max(18, Math.min(26, W / (players.length * 5 + 8)));
-    const spread = (W * 0.6) / Math.max(players.length - 1, 1);
-    const startX = W * 0.2;
+    const ballR = Math.max(10, Math.min(16, W / (players.length * 6 + 12)));
+    const ballDiam = ballR * 2 + 2;  // 공 사이 여백 2px
+
+    // 시작 순서 랜덤 셔플 (왼쪽부터 순서는 랜덤)
+    const slots = [...Array(players.length).keys()];
+    for (let k = slots.length - 1; k > 0; k--) {
+        const j = Math.floor(Math.random() * (k + 1));
+        [slots[k], slots[j]] = [slots[j], slots[k]];
+    }
+
+    // 중앙 기준 나란히 배치
+    const groupW = players.length * ballDiam;
+    const groupStartX = W / 2 - groupW / 2;
+
+    // 핀 배치는 ballR을 알아야 하므로 여기서 실행
+    addPegs(W, H, ballR);
 
     players.forEach((p, i) => {
-        const x = players.length === 1 ? W / 2 : startX + i * spread;
-        // 약간의 랜덤 오프셋 (예측 불가)
-        const jitterX = (Math.random() - 0.5) * 20;
-        const jitterY = Math.random() * 15;
+        const x = groupStartX + slots[i] * ballDiam + ballR;
+        const jitterY = Math.random() * 8;  // Y 방향 약간 망이만
 
-        const body = Bodies.circle(x + jitterX, 30 + jitterY, ballR, {
+        const body = Bodies.circle(x, 28 + jitterY, ballR, {
             label: 'player_' + i,
-            restitution: 0.35 + Math.random() * 0.25,   // 플레이어마다 탄성 다름
+            restitution: 0.35 + Math.random() * 0.25,
             friction: 0.01 + Math.random() * 0.04,
             frictionAir: 0.005 + Math.random() * 0.008,
             density: 0.002,
@@ -230,15 +238,23 @@ function initPhysics() {
         });
     });
 
-    // ── 렌더 루프 (레이블 동기화) ──
+    // ── 렌더 루프 (레이블 동기화 + 자동 스크롤) ──
+    const canvasWrapper = document.querySelector('.canvas-wrapper');
     function labelLoop() {
+        let maxY = 0;
         balls.forEach((b) => {
             const lbl = document.getElementById(`label-${b.idx}`);
             if (lbl) {
                 lbl.style.left = b.body.position.x + 'px';
                 lbl.style.top = b.body.position.y + 'px';
             }
+            if (!b.landed && b.body.position.y > maxY) maxY = b.body.position.y;
         });
+        // 가장 앞선 공을 뷰 중간에 유지
+        const targetScroll = maxY - canvasWrapper.clientHeight * 0.45;
+        if (targetScroll > canvasWrapper.scrollTop) {
+            canvasWrapper.scrollTop += (targetScroll - canvasWrapper.scrollTop) * 0.06;
+        }
         animFrameId = requestAnimationFrame(labelLoop);
     }
     labelLoop();
@@ -247,7 +263,7 @@ function initPhysics() {
     Render.run(matterRender);
     Runner.run(matterRunner, matterEngine);
 
-    // 안전망: 20초 후 아직 안 끝났으면 강제 종료
+    // 안전망: 45초 후 아직 안 끝났으면 강제 종료
     setTimeout(() => {
         if (!gameFinished) {
             balls.filter(b => !b.landed).forEach(b => {
@@ -257,52 +273,77 @@ function initPhysics() {
             });
             if (rankingOrder.length > 0) showResult();
         }
-    }, 20000);
+    }, 45000);
 }
 
-// ─── Plinko 핀 배치 ──────────────────────────────────────
-function addPegs(W, H) {
+// ─── 지형 배치 (램프 없음 – 공이 절대 막히지 않음) ─────────
+function addPegs(W, H, ballR) {
     const { Bodies, Composite } = Matter;
-    const pegOpts = (r) => ({
-        isStatic: true,
-        restitution: 0.5,
-        friction: 0.05,
-        render: { fillStyle: 'rgba(34,211,238,0.25)', strokeStyle: 'rgba(34,211,238,0.7)', lineWidth: 1.5 },
-    });
 
-    const rows = 9;
-    const cols = 11;
+    const pegStyle = { fillStyle: 'rgba(34,211,238,0.30)', strokeStyle: 'rgba(34,211,238,0.9)', lineWidth: 1.5 };
+    const bumperStyle = { fillStyle: 'rgba(245,158,11,0.38)', strokeStyle: 'rgba(245,158,11,1.0)', lineWidth: 2.5 };
+
+    function peg(x, y, r) { return Bodies.circle(x, y, r, { isStatic: true, restitution: 0.45, friction: 0.04, render: pegStyle }); }
+    function bumper(x, y, r) { return Bodies.circle(x, y, r, { isStatic: true, restitution: 0.72, friction: 0.0, render: bumperStyle }); }
+
+    const pegR = Math.max(4, Math.min(7, W / 110));
+
+    // ── 지그재그 핀 – 20행, 5배 높이 전체 균등 배치 ──
+    const TOTAL_ROWS = 20;
+    const COLS = 11;
     const marginX = W * 0.06;
-    const marginTop = H * 0.10;
-    const marginBot = H * 0.18;
-    const gapX = (W - marginX * 2) / (cols - 1);
-    const gapY = (H - marginTop - marginBot) / (rows - 1);
-    const pegR = Math.max(5, Math.min(9, gapX * 0.18));
+    const gapX = (W - marginX * 2) / (COLS - 1);
+    // 상단 8%, 하단 4% 여백
+    const topY = H * 0.04;
+    const botY = H * 0.96;
+    const gapY = (botY - topY) / (TOTAL_ROWS - 1);
 
-    for (let row = 0; row < rows; row++) {
-        const count = row % 2 === 0 ? cols : cols - 1;
-        const offsetX = row % 2 === 0 ? 0 : gapX / 2;
-        for (let col = 0; col < count; col++) {
-            const x = marginX + offsetX + col * gapX;
-            const y = marginTop + row * gapY;
-            // 가끔 삼각형 장애물도 추가 (짝수 행 중간)
-            if (row % 3 === 1 && col % 4 === 2) {
-                const tri = Bodies.polygon(x, y, 3, pegR * 2.2, { ...pegOpts(), angle: Math.PI });
-                Composite.add(matterEngine.world, tri);
-            } else {
-                Composite.add(matterEngine.world, Bodies.circle(x, y, pegR, pegOpts()));
-            }
+    for (let row = 0; row < TOTAL_ROWS; row++) {
+        const even = row % 2 === 0;
+        const cnt = even ? COLS : COLS - 1;
+        const ox = even ? 0 : gapX / 2;
+        const y = topY + row * gapY;
+
+        for (let c = 0; c < cnt; c++) {
+            const x = marginX + ox + c * gapX;
+            // 벽 근처 핀은 살짝 안쪽으로 (공 낄 공간 없애기)
+            if (x < 20 || x > W - 20) continue;
+            Composite.add(matterEngine.world, peg(x, y, pegR));
         }
     }
 
-    // 양 사이드 경사 가이드
-    const bumperOpts = {
-        isStatic: true, angle: Math.PI / 10, restitution: 0.6, friction: 0.02,
-        render: { fillStyle: 'rgba(168,85,247,0.2)', strokeStyle: 'rgba(168,85,247,0.6)', lineWidth: 2 }
-    };
-    const bW = W * 0.10, bH = 20;
-    Composite.add(matterEngine.world, Matter.Bodies.rectangle(W * 0.12, H * 0.55, bW, bH, bumperOpts));
-    Composite.add(matterEngine.world, Matter.Bodies.rectangle(W * 0.88, H * 0.55, bW, bH, { ...bumperOpts, angle: -Math.PI / 10 }));
+    // ── 범퍼 – 각 20% 구간마다 3개씩, 총 15개 ──
+    const BUMPER_ZONES = 5;
+    const bumperPositions = [
+        // [xRatio, yRatio, radius]
+        [0.20, 0.12, 11], [0.50, 0.11, 13], [0.80, 0.12, 11],
+        [0.30, 0.30, 12], [0.70, 0.30, 12],
+        [0.15, 0.47, 11], [0.50, 0.46, 14], [0.85, 0.47, 11],
+        [0.28, 0.63, 12], [0.72, 0.63, 12],
+        [0.18, 0.79, 11], [0.50, 0.78, 14], [0.82, 0.79, 11],
+        [0.35, 0.91, 10], [0.65, 0.91, 10],
+    ];
+    bumperPositions.forEach(([xr, yr, r]) => {
+        Composite.add(matterEngine.world, bumper(W * xr, H * yr, r));
+    });
+
+    // ── 마지막 게이트: 공 3개 너비만 남기고 좌우 벽 막기 ──
+    const gateGap = Math.max(ballR * 2 * 3 + 10, 80); // 공 3개 지름 + 여유
+    const gateY = H * 0.975;
+    const gateH = 14;
+    const wallStyle = { fillStyle: 'rgba(168,85,247,0.45)', strokeStyle: 'rgba(168,85,247,1)', lineWidth: 2 };
+    const leftGateW = W / 2 - gateGap / 2;
+    const rightGateW = W / 2 - gateGap / 2;
+    if (leftGateW > 0) {
+        Composite.add(matterEngine.world, Bodies.rectangle(
+            leftGateW / 2, gateY, leftGateW, gateH,
+            { isStatic: true, restitution: 0.3, render: wallStyle }
+        ));
+        Composite.add(matterEngine.world, Bodies.rectangle(
+            W - rightGateW / 2, gateY, rightGateW, gateH,
+            { isStatic: true, restitution: 0.3, render: wallStyle }
+        ));
+    }
 }
 
 // ─── 순위 아이템 추가 ─────────────────────────────────────
