@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>☕ 중력 뽑기 - Gravity Roulette</title>
+  <meta name="description" content="커피 내기를 위한 물리 기반 Plinko 룰렛 게임. 이름을 입력하고 누가 커피를 살지 결정하세요!" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <!-- 배경 별빛 파티클 -->
+  <div class="stars" id="stars"></div>
+
+  <!-- ── 입력 화면 ── -->
+  <section id="setup-screen" class="screen active">
+    <div class="setup-container">
+      <header class="setup-header">
+        <div class="logo">
+          <span class="logo-icon">☕</span>
+          <h1>중력 뽑기</h1>
+          <p class="tagline">Gravity Roulette · 커피 내기</p>
+        </div>
+      </header>
+
+      <div class="card glass-card input-card">
+        <h2 class="card-title">참가자 이름 입력</h2>
+        <div class="input-row" id="name-input-row">
+          <input type="text" id="player-name-input" class="name-input" placeholder="이름 입력 (쉼표로 구분 가능)"
+            autocomplete="off" />
+          <button id="add-btn" class="btn btn-primary" onclick="addPlayer()">추가</button>
+        </div>
+
+        <ul id="player-list" class="player-list">
+          <!-- 동적 생성 -->
+        </ul>
+
+        <p id="player-count-hint" class="hint">최소 2명 이상 입력하세요 (최대 10명)</p>
+      </div>
+
+      <button id="start-btn" class="btn btn-start" onclick="startGame()" disabled>
+        <span class="btn-icon">🚀</span> 게임 시작!
+      </button>
+    </div>
+  </section>
+
+  <!-- ── 게임 화면 ── -->
+  <section id="game-screen" class="screen">
+    <div class="game-header">
+      <span class="game-title">☕ 중력 뽑기</span>
+      <div class="camera-control">
+        <label for="camera-select" style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.8);">🎥
+          카메라:</label>
+        <select id="camera-select" class="dropdown" onchange="changeCameraTarget()">
+          <option value="auto">가장 앞선 사람 (기본)</option>
+        </select>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="resetGame()">↩ 다시 설정</button>
+    </div>
+
+    <div class="canvas-wrapper">
+      <canvas id="game-canvas"></canvas>
+      <!-- 이름 레이블은 canvas 위 absolute div에 렌더링 -->
+      <div id="labels-layer" class="labels-layer"></div>
+    </div>
+
+    <div class="ranking-panel glass-card" id="ranking-panel">
+      <h3>🏆 도착 순서</h3>
+      <ol id="ranking-list" class="ranking-list"></ol>
+    </div>
+  </section>
+
+  <!-- ── 결과 모달 ── -->
+  <div id="result-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal glass-card">
+      <div class="confetti-container" id="confetti-container"></div>
+      <div class="modal-emoji" id="modal-emoji">😱</div>
+      <h2 class="modal-title" id="modal-title">결과 발표!</h2>
+      <p class="modal-body" id="modal-body">로딩중...</p>
+      <div class="modal-ranking" id="modal-ranking"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="closeModal()">확인</button>
+        <button class="btn btn-ghost" onclick="resetGame()">🔄 다시 하기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Matter.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <script src="script.js"></script>
+</body>
+
+</html>
