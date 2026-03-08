@@ -45,19 +45,51 @@ const nameInput = document.getElementById('player-name-input');
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
 
 function addPlayer() {
-    const name = nameInput.value.trim();
-    if (!name) return;
-    if (players.length >= MAX_PLAYERS) {
-        shakeInput(); return;
+    const rawInput = nameInput.value.trim();
+    if (!rawInput) return;
+
+    // 쉼표(,) 기준으로 분리 후 여백 제거, 빈 문자열 제외
+    const newNames = rawInput.split(',').map(n => n.trim()).filter(n => n);
+
+    let addedCount = 0;
+    let duplicateCount = 0;
+    let maxReached = false;
+
+    for (let name of newNames) {
+        if (name.length > 12) {
+            name = name.substring(0, 12); // 최대 12자 제한 (기존 maxlength 처리 대체)
+        }
+        if (players.length >= MAX_PLAYERS) {
+            maxReached = true;
+            break;
+        }
+        if (players.find(p => p.name === name)) {
+            duplicateCount++;
+            continue;
+        }
+        players.push({ name, color: BALL_COLORS[players.length % BALL_COLORS.length] });
+        addedCount++;
     }
-    if (players.find(p => p.name === name)) {
-        shakeInput('이미 있는 이름입니다'); return;
+
+    if (maxReached && addedCount === 0) {
+        shakeInput('최대 10명까지 가능합니다');
+    } else if (duplicateCount > 0 && addedCount === 0) {
+        shakeInput('이미 있는 이름입니다');
+    } else if (maxReached && addedCount > 0) {
+        shakeInput('최대 인원(10명)까지만 추가되었습니다');
+    } else if (duplicateCount > 0 && addedCount > 0) {
+        shakeInput('중복된 이름을 제외하고 추가되었습니다');
     }
-    players.push({ name, color: BALL_COLORS[players.length % BALL_COLORS.length] });
-    nameInput.value = '';
+
+    if (addedCount > 0 || (newNames.length > 1 && addedCount === 0)) {
+        nameInput.value = '';
+    }
+
+    if (addedCount > 0) {
+        renderPlayerList();
+        updateStartBtn();
+    }
     nameInput.focus();
-    renderPlayerList();
-    updateStartBtn();
 }
 
 function removePlayer(idx) {

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <!-- 배경 별빛 파티클 -->
   <div class="stars" id="stars"></div>
@@ -28,14 +30,8 @@
       <div class="card glass-card input-card">
         <h2 class="card-title">참가자 이름 입력</h2>
         <div class="input-row" id="name-input-row">
-          <input
-            type="text"
-            id="player-name-input"
-            class="name-input"
-            placeholder="이름을 입력하세요"
-            maxlength="12"
-            autocomplete="off"
-          />
+          <input type="text" id="player-name-input" class="name-input" placeholder="이름 입력 (쉼표로 구분 가능)"
+            autocomplete="off" />
           <button id="add-btn" class="btn btn-primary" onclick="addPlayer()">추가</button>
         </div>
 
@@ -90,4 +86,5 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
   <script src="script.js"></script>
 </body>
+
 </html>
