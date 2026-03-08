@@ -52,6 +52,13 @@
   <section id="game-screen" class="screen">
     <div class="game-header">
       <span class="game-title">☕ 중력 뽑기</span>
+      <div class="camera-control">
+        <label for="camera-select" style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.8);">🎥
+          카메라:</label>
+        <select id="camera-select" class="dropdown" onchange="changeCameraTarget()">
+          <option value="auto">가장 앞선 사람 (기본)</option>
+        </select>
+      </div>
       <button class="btn btn-sm btn-ghost" onclick="resetGame()">↩ 다시 설정</button>
     </div>
 

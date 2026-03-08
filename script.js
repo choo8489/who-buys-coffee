@@ -191,9 +191,13 @@ function initPhysics() {
 
     // ── 벽·바닥 ──
     const wallOpts = { isStatic: true, render: { fillStyle: 'rgba(168,85,247,0.15)', strokeStyle: 'rgba(168,85,247,0.4)', lineWidth: 2 } };
+
+    // 바닥이 얇으면 빠른 공이 뚫고 나갈 수 있으므로 두껍게(100) 설정
     const wallThick = 30;
+    const floorThick = 150;
+
     const walls = [
-        Bodies.rectangle(W / 2, H + wallThick / 2, W + 40, wallThick, { isStatic: true, label: 'floor', render: { fillStyle: '#a855f718', strokeStyle: '#a855f750', lineWidth: 2 } }),
+        Bodies.rectangle(W / 2, H + floorThick / 2, W + 40, floorThick, { isStatic: true, label: 'floor', render: { fillStyle: '#a855f718', strokeStyle: '#a855f750', lineWidth: 2 } }),
         Bodies.rectangle(-wallThick / 2, H / 2, wallThick, H + 200, wallOpts),   // 좌벽
         Bodies.rectangle(W + wallThick / 2, H / 2, wallThick, H + 200, wallOpts), // 우벽
     ];
@@ -227,6 +231,7 @@ function initPhysics() {
             friction: 0.01 + Math.random() * 0.04,
             frictionAir: 0.005 + Math.random() * 0.008,
             density: 0.002,
+            bullet: true, // CCD(연속 충돌 감지) 활성화: 빠르게 떨어져도 바닥을 뚫지 않게 방지
             render: {
                 fillStyle: p.color,
                 strokeStyle: lighten(p.color),
@@ -270,23 +275,50 @@ function initPhysics() {
         });
     });
 
-    // ── 렌더 루프 (레이블 동기화 + 자동 스크롤) ──
+    // ── 카메라 트래킹 옵션 렌더링 ──
+    const cameraSelect = document.getElementById('camera-select');
+    cameraSelect.innerHTML = '<option value="auto">가장 앞선 사람 (기본)</option>';
+    players.forEach((p, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = `[${i + 1}] ${p.name}`;
+        cameraSelect.appendChild(opt);
+    });
+    cameraSelect.value = 'auto'; // 기본값
+
+    // ── 렌더 루프 (레이블 동기화 + 카메라 스크롤) ──
     const canvasWrapper = document.querySelector('.canvas-wrapper');
     function labelLoop() {
-        let maxY = 0;
+        let maxY = 0; // 'auto' 모드용 최대 깊이
+        let targetY = 0;
+        let isAuto = cameraSelect.value === 'auto';
+
         balls.forEach((b) => {
             const lbl = document.getElementById(`label-${b.idx}`);
             if (lbl) {
                 lbl.style.left = b.body.position.x + 'px';
                 lbl.style.top = b.body.position.y + 'px';
             }
-            if (!b.landed && b.body.position.y > maxY) maxY = b.body.position.y;
+
+            if (isAuto && !b.landed && b.body.position.y > maxY) {
+                maxY = b.body.position.y;
+            }
+
+            // 특정 플레이어 추적 모드
+            if (!isAuto && b.idx === parseInt(cameraSelect.value)) {
+                targetY = b.body.position.y;
+            }
         });
-        // 가장 앞선 공을 뷰 중간에 유지
-        const targetScroll = maxY - canvasWrapper.clientHeight * 0.45;
-        if (targetScroll > canvasWrapper.scrollTop) {
-            canvasWrapper.scrollTop += (targetScroll - canvasWrapper.scrollTop) * 0.06;
-        }
+
+        // 카메라 타겟 위치 결정
+        const finalTargetY = isAuto ? maxY : targetY;
+
+        // 타겟 위치를 화면 약간 아래에(60%) 두어 공이 덜 가려지게 조정
+        const targetScroll = finalTargetY - canvasWrapper.clientHeight * 0.6;
+
+        // 부드럽지만 재빠르게 쫓아가기 (계수 0.5)
+        canvasWrapper.scrollTop += (targetScroll - canvasWrapper.scrollTop) * 0.5;
+
         animFrameId = requestAnimationFrame(labelLoop);
     }
     labelLoop();
@@ -308,6 +340,11 @@ function initPhysics() {
     }, 45000);
 }
 
+// 카메라 셀렉트 변경 시 빈 함수 (onchange 용)
+function changeCameraTarget() {
+    // 뷰포트 내 스크롤 계산은 labelLoop에서 처리됨
+}
+
 // ─── 지형 배치 (램프 없음 – 공이 절대 막히지 않음) ─────────
 function addPegs(W, H, ballR) {
     const { Bodies, Composite } = Matter;
@@ -319,6 +356,17 @@ function addPegs(W, H, ballR) {
     function bumper(x, y, r) { return Bodies.circle(x, y, r, { isStatic: true, restitution: 0.72, friction: 0.0, render: bumperStyle }); }
 
     const pegR = Math.max(4, Math.min(7, W / 110));
+
+    // ── 범퍼 – 각 20% 구간마다 배치할 좌표들을 먼저 미리 정의 ──
+    const BUMPER_ZONES = 5;
+    const bumperPositions = [
+        // [xRatio, yRatio, radius]
+        [0.20, 0.12, 11], [0.50, 0.11, 13], [0.80, 0.12, 11],
+        [0.30, 0.30, 12], [0.70, 0.30, 12],
+        [0.15, 0.47, 11], [0.50, 0.46, 14], [0.85, 0.47, 11],
+        [0.28, 0.63, 12], [0.72, 0.63, 12],
+        [0.18, 0.79, 11], /* [0.50, 0.78, 14] 중앙 범퍼는 공이 빠지는데 방해되므로 제거 */[0.82, 0.79, 11],
+    ];
 
     // ── 지그재그 핀 – 20행, 5배 높이 전체 균등 배치 ──
     const TOTAL_ROWS = 20;
@@ -340,40 +388,56 @@ function addPegs(W, H, ballR) {
             const x = marginX + ox + c * gapX;
             // 벽 근처 핀은 살짝 안쪽으로 (공 낄 공간 없애기)
             if (x < 20 || x > W - 20) continue;
+
+            // 하단 V자 깔때기 부근 핀 제거 조건 강화
+            if (y > H * 0.94) continue;
+            if (y > H * 0.88 && (x < W * 0.35 || x > W * 0.65)) continue;
+
+            // 핵심: 범퍼(노란색) 주변의 핀(파란색)은 길막/겹침 방지를 위해 아예 생성하지 않음
+            let isTooCloseToBumper = false;
+            for (let [bxRatio, byRatio, br] of bumperPositions) {
+                const bx = W * bxRatio;
+                const by = H * byRatio;
+                // 두 점 사이의 거리 계산
+                const dist = Math.hypot(x - bx, y - by);
+                // 공이 지나갈 수 있는 충분한 여백(공 지름의 1.8배 + 범퍼 반경) 확보
+                if (dist < br + (ballR * 2 * 1.8)) {
+                    isTooCloseToBumper = true;
+                    break;
+                }
+            }
+            if (isTooCloseToBumper) continue;
+
             Composite.add(matterEngine.world, peg(x, y, pegR));
         }
     }
 
-    // ── 범퍼 – 각 20% 구간마다 3개씩, 총 15개 ──
-    const BUMPER_ZONES = 5;
-    const bumperPositions = [
-        // [xRatio, yRatio, radius]
-        [0.20, 0.12, 11], [0.50, 0.11, 13], [0.80, 0.12, 11],
-        [0.30, 0.30, 12], [0.70, 0.30, 12],
-        [0.15, 0.47, 11], [0.50, 0.46, 14], [0.85, 0.47, 11],
-        [0.28, 0.63, 12], [0.72, 0.63, 12],
-        [0.18, 0.79, 11], [0.50, 0.78, 14], [0.82, 0.79, 11],
-        [0.35, 0.91, 10], [0.65, 0.91, 10],
-    ];
     bumperPositions.forEach(([xr, yr, r]) => {
         Composite.add(matterEngine.world, bumper(W * xr, H * yr, r));
     });
 
-    // ── 마지막 게이트: 공 3개 너비만 남기고 좌우 벽 막기 ──
+    // ── 마지막 게이트: 공 3개 너비만 남기고 좌우 벽 막기 (V자 깔때기 형태) ──
     const gateGap = Math.max(ballR * 2 * 3 + 10, 80); // 공 3개 지름 + 여유
-    const gateY = H * 0.975;
-    const gateH = 14;
+    const gateY = H * 0.965; // 위치 약간 조정
+    const gateH = 16;
     const wallStyle = { fillStyle: 'rgba(168,85,247,0.45)', strokeStyle: 'rgba(168,85,247,1)', lineWidth: 2 };
-    const leftGateW = W / 2 - gateGap / 2;
-    const rightGateW = W / 2 - gateGap / 2;
-    if (leftGateW > 0) {
+
+    // 좌우 벽의 길이 계산 (대각선 길이 고려)
+    const gateW = W / 2 - gateGap / 2 + 20;
+
+    // 기울기 각도 (라디안)
+    const angle = 0.25; // 약 14도 기울기
+
+    if (gateW > 30) {
+        // 왼쪽 벽 (오른쪽 아래로 기울어짐)
         Composite.add(matterEngine.world, Bodies.rectangle(
-            leftGateW / 2, gateY, leftGateW, gateH,
-            { isStatic: true, restitution: 0.3, render: wallStyle }
+            gateW / 2 - 10, gateY - Math.sin(angle) * (gateW / 2), gateW, gateH,
+            { isStatic: true, restitution: 0.3, angle: angle, render: wallStyle }
         ));
+        // 오른쪽 벽 (왼쪽 아래로 기울어짐)
         Composite.add(matterEngine.world, Bodies.rectangle(
-            W - rightGateW / 2, gateY, rightGateW, gateH,
-            { isStatic: true, restitution: 0.3, render: wallStyle }
+            W - gateW / 2 + 10, gateY - Math.sin(angle) * (gateW / 2), gateW, gateH,
+            { isStatic: true, restitution: 0.3, angle: -angle, render: wallStyle }
         ));
     }
 }
@@ -446,6 +510,9 @@ function resetGame() {
     document.getElementById('game-screen').classList.remove('active');
     document.getElementById('game-screen').style.display = 'none';
     document.getElementById('setup-screen').classList.add('active');
+
+    // 카메라(스크롤) 맨 위로 초기화
+    document.querySelector('.canvas-wrapper').scrollTop = 0;
 
     // 기존 플레이어 목록은 유지 (편의를 위해)
     rankingOrder = [];
