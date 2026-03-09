@@ -347,9 +347,10 @@ function changeCameraTarget() {
 
 // ─── 지형 배치 (램프 없음 – 공이 절대 막히지 않음) ─────────
 function addPegs(W, H, ballR) {
-    const { Bodies, Composite } = Matter;
+    const { Bodies, Composite, Body, Constraint, Events, Vector } = Matter;
 
     const pegStyle = { fillStyle: 'rgba(34,211,238,0.30)', strokeStyle: 'rgba(34,211,238,0.9)', lineWidth: 1.5 };
+    const windmillStyle = { fillStyle: 'rgba(236,72,153,0.35)', strokeStyle: 'rgba(236,72,153,0.95)', lineWidth: 2 };
     const bumperStyle = { fillStyle: 'rgba(245,158,11,0.38)', strokeStyle: 'rgba(245,158,11,1.0)', lineWidth: 2.5 };
 
     function peg(x, y, r) { return Bodies.circle(x, y, r, { isStatic: true, restitution: 0.45, friction: 0.04, render: pegStyle }); }
@@ -367,6 +368,15 @@ function addPegs(W, H, ballR) {
         [0.28, 0.63, 12], [0.72, 0.63, 12],
         [0.18, 0.79, 11], /* [0.50, 0.78, 14] 중앙 범퍼는 공이 빠지는데 방해되므로 제거 */[0.82, 0.79, 11],
     ];
+
+    // ── 마지막 출구(게이트) Y 위치 ──
+    const gateY = H * 0.965;
+
+    // ── 풍차(Windmill) 설정 - 깔때기 출구 쪽에 모터로 회전하게 배치 ──
+    const windmillX = W / 2 - 30;
+    const windmillY = gateY - 15; // 출구 입구에 걸쳐있도록
+    const windmillLen = Math.max(160, W * 0.35); // 길이를 조금 늘림
+    const windmillThick = 20;
 
     // ── 지그재그 핀 – 20행, 5배 높이 전체 균등 배치 ──
     const TOTAL_ROWS = 20;
@@ -393,6 +403,10 @@ function addPegs(W, H, ballR) {
             if (y > H * 0.94) continue;
             if (y > H * 0.88 && (x < W * 0.35 || x > W * 0.65)) continue;
 
+            // 풍차(Windmill) 회전 반경 내 핀 제거
+            const distToWindmill = Math.hypot(x - windmillX, y - windmillY);
+            if (distToWindmill < windmillLen / 2 + (ballR * 2 * 2.5)) continue;
+
             // 핵심: 범퍼(노란색) 주변의 핀(파란색)은 길막/겹침 방지를 위해 아예 생성하지 않음
             let isTooCloseToBumper = false;
             for (let [bxRatio, byRatio, br] of bumperPositions) {
@@ -416,10 +430,53 @@ function addPegs(W, H, ballR) {
         Composite.add(matterEngine.world, bumper(W * xr, H * yr, r));
     });
 
+    // ── 일자형 회전바 (Windmill) 생성 ──
+    const windmillBody = Bodies.rectangle(windmillX, windmillY, windmillLen, 15, {
+        render: windmillStyle,
+        chamfer: { radius: 5 },
+        frictionAir: 0,
+        friction: 0.001,
+        restitution: 0.5,
+        density: 0.01,
+        collisionFilter: { group: -1 } // 깔때기 벽과 겹쳐도 튕기지 않게
+    });
+
+    // 중앙을 고정시키는 힌지(Hinge) 제약 조건
+    const windmillConstraint = Constraint.create({
+        pointA: { x: windmillX, y: windmillY },
+        bodyB: windmillBody,
+        length: 0,
+        stiffness: 1,
+        render: { visible: false } // 중심축 보이지 않게
+    });
+
+    Composite.add(matterEngine.world, [windmillBody, windmillConstraint]);
+
+    // 엔진 정밀도 (Iterations) 증가: 뚫고 나가는(Tunneling) 버그 완화
+    matterEngine.positionIterations = 16;
+    matterEngine.velocityIterations = 12;
+
+    // 모터처럼 매 프레임 강제로 회전시키기 & 공 속도 제한 (터널링 방지)
+    Events.on(matterEngine, 'beforeUpdate', () => {
+        if (windmillBody) {
+            Body.setAngularVelocity(windmillBody, 0.04); // 일정한 속도로 계속 빙빙 돎 (속도 반감)
+        }
+
+        // 투사체(공)가 너무 빨라 벽을 뚫고 나가지 않도록 최대 속도(Terminal Velocity) 제한
+        const maxSpeed = ballR * 0.8; // 프레임당 공 반지름보다 적게 이동하도록 설정
+        balls.forEach(b => {
+            const vel = b.body.velocity;
+            const speed = Vector.magnitude(vel);
+            if (speed > maxSpeed) {
+                // 한도를 넘으면 현재 방향은 유지하되 속도 크기만 강제로 줄임
+                Body.setVelocity(b.body, Vector.mult(vel, maxSpeed / speed));
+            }
+        });
+    });
+
     // ── 마지막 게이트: 공 3개 너비만 남기고 좌우 벽 막기 (V자 깔때기 형태) ──
     const gateGap = Math.max(ballR * 2 * 3 + 10, 80); // 공 3개 지름 + 여유
-    const gateY = H * 0.965; // 위치 약간 조정
-    const gateH = 16;
+    const gateH = 16; // 원래의 얇은 디자인(16)으로 원상복구
     const wallStyle = { fillStyle: 'rgba(168,85,247,0.45)', strokeStyle: 'rgba(168,85,247,1)', lineWidth: 2 };
 
     // 좌우 벽의 길이 계산 (대각선 길이 고려)
@@ -432,12 +489,12 @@ function addPegs(W, H, ballR) {
         // 왼쪽 벽 (오른쪽 아래로 기울어짐)
         Composite.add(matterEngine.world, Bodies.rectangle(
             gateW / 2 - 10, gateY - Math.sin(angle) * (gateW / 2), gateW, gateH,
-            { isStatic: true, restitution: 0.3, angle: angle, render: wallStyle }
+            { isStatic: true, restitution: 0.3, angle: angle, render: wallStyle, collisionFilter: { group: -1 } }
         ));
         // 오른쪽 벽 (왼쪽 아래로 기울어짐)
         Composite.add(matterEngine.world, Bodies.rectangle(
             W - gateW / 2 + 10, gateY - Math.sin(angle) * (gateW / 2), gateW, gateH,
-            { isStatic: true, restitution: 0.3, angle: -angle, render: wallStyle }
+            { isStatic: true, restitution: 0.3, angle: -angle, render: wallStyle, collisionFilter: { group: -1 } }
         ));
     }
 }
